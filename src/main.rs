@@ -81,6 +81,10 @@ fn count_runs(line: Vec<bool>) -> Vec<usize> {
         runs.push(curr_run);
     }
 
+    if runs.len() == 0 {
+        runs.push(0);
+    }
+
     runs
 }
 
@@ -162,6 +166,10 @@ impl Puzzle {
             solution,
             size,
         }
+    }
+
+    pub fn check_solved(&self) {
+        println!("{:?}", *self.grid.get_cells() == self.solution);
     }
 }
 
@@ -257,7 +265,7 @@ impl Grid {
         col: usize,
         cell_type: Option<CellType>,
     ) {
-        self.cells[row][col] = cell_type.is_some();
+        self.cells[row][col] = matches!(cell_type, Some(CellType::Filled));
 
         if let Some(cell_type) = cell_type {
             self.spawn_at(commands, row, col, cell_type);
@@ -286,12 +294,16 @@ impl Grid {
         self.set_at(commands, row, col, new_type);
     }
 
+    pub fn get_cells(&self) -> &Vec<Vec<bool>> {
+        &self.cells
+    }
+
     fn spawn_at(&mut self, commands: &mut Commands, row: usize, col: usize, cell_type: CellType) {
         self.despawn_at(commands, row, col);
 
         let grid_thickness = 0.5;
         let x_pos = row as f32 * self.cell_size();
-        let y_pos = col as f32 * self.cell_size();
+        let y_pos = (self.size - col - 1) as f32 * self.cell_size();
         let mut bundle = SpriteBundle {
             sprite: Sprite {
                 color: Color::rgb(0.1, 0.1, 0.1),
@@ -340,7 +352,7 @@ impl Grid {
             return None;
         }
         let row = (adjusted.x / self.cell_size()) as usize;
-        let col = (adjusted.y / self.cell_size()) as usize;
+        let col = self.size - (adjusted.y / self.cell_size()) as usize - 1;
         if row < self.size && col < self.size {
             Some((row, col))
         } else {
@@ -391,5 +403,7 @@ fn handle_mouse_clicks(
                 }
             }
         }
+
+        puzzle.check_solved();
     }
 }
