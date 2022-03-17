@@ -102,7 +102,7 @@ impl Puzzle {
             "solution must be square"
         );
 
-        let grid = Grid::new(commands, size);
+        let grid = Grid::new(commands, asset_server.load("textures/cross.png"), size);
         let cell_size = grid.cell_size();
 
         let row_runs: Vec<Vec<usize>> = solution
@@ -141,7 +141,7 @@ impl Puzzle {
                 });
             }
 
-            for (j, run) in col_runs[size - i - 1].iter().rev().enumerate() {
+            for (j, run) in col_runs[i].iter().rev().enumerate() {
                 commands.spawn_bundle(Text2dBundle {
                     text: Text::with_section(run.to_string(), text_style.clone(), text_alignment),
                     transform: Transform {
@@ -167,9 +167,10 @@ impl Puzzle {
 
 const GRID_SIZE: f32 = 300.;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 enum CellType {
     Filled,
+    Cross,
 }
 
 #[derive(Component, Copy, Clone)]
@@ -185,10 +186,12 @@ struct Grid {
     size: usize,
     entities: Vec<Vec<Option<CellEntity>>>,
     cells: Vec<Vec<bool>>,
+
+    cross_handle: Handle<Image>,
 }
 
 impl Grid {
-    pub fn new(commands: &mut Commands, size: usize) -> Self {
+    pub fn new(commands: &mut Commands, cross_handle: Handle<Image>, size: usize) -> Self {
         let entities = vec![vec![None; size]; size];
         let cells = vec![vec![false; size]; size];
 
@@ -243,54 +246,78 @@ impl Grid {
             size,
             entities,
             cells,
+            cross_handle,
         }
     }
 
-    pub fn set_at(&mut self, commands: &mut Commands, row: usize, col: usize, val: bool) {
-        self.cells[row][col] = val;
+    pub fn set_at(
+        &mut self,
+        commands: &mut Commands,
+        row: usize,
+        col: usize,
+        cell_type: Option<CellType>,
+    ) {
+        self.cells[row][col] = cell_type.is_some();
 
-        if val {
-            self.spawn_at(commands, row, col);
+        if let Some(cell_type) = cell_type {
+            self.spawn_at(commands, row, col, cell_type);
         } else {
             self.despawn_at(commands, row, col);
         }
     }
 
-    pub fn toggle_at(&mut self, commands: &mut Commands, row: usize, col: usize) {
-        self.set_at(commands, row, col, !self.cells[row][col]);
+    // If the cell contains cell_type, set it to empty, else set it to cell_type
+    pub fn toggle_at(
+        &mut self,
+        commands: &mut Commands,
+        row: usize,
+        col: usize,
+        cell_type: CellType,
+    ) {
+        let new_type = if let Some(entity) = self.entities[row][col] {
+            if entity.cell_type == cell_type {
+                None
+            } else {
+                Some(cell_type)
+            }
+        } else {
+            Some(cell_type)
+        };
+        self.set_at(commands, row, col, new_type);
     }
 
-    fn spawn_at(&mut self, commands: &mut Commands, row: usize, col: usize) {
+    fn spawn_at(&mut self, commands: &mut Commands, row: usize, col: usize, cell_type: CellType) {
         self.despawn_at(commands, row, col);
-        let cell_type = CellType::Filled;
 
         let grid_thickness = 0.5;
         let x_pos = row as f32 * self.cell_size();
         let y_pos = col as f32 * self.cell_size();
-        let cell_scale = Vec3::new(
-            self.cell_size() - grid_thickness,
-            self.cell_size() - grid_thickness,
-            0.,
-        );
-        let entity_id = commands
-            .spawn_bundle(SpriteBundle {
-                sprite: Sprite {
-                    color: Color::rgb(0.1, 0.1, 0.1),
-                    ..Default::default()
-                },
-                transform: Transform {
-                    translation: Vec3::new(
-                        x_pos - grid_thickness / 2.,
-                        y_pos - grid_thickness / 2.,
-                        1.,
-                    ) + self.grid_offset(),
-                    scale: cell_scale,
-                    ..Default::default()
-                },
+        let mut bundle = SpriteBundle {
+            sprite: Sprite {
+                color: Color::rgb(0.1, 0.1, 0.1),
+                custom_size: Some(Vec2::new(
+                    self.cell_size() - grid_thickness,
+                    self.cell_size() - grid_thickness,
+                )),
                 ..Default::default()
-            })
-            .insert(Cell(cell_type))
-            .id();
+            },
+            transform: Transform {
+                translation: Vec3::new(
+                    x_pos - grid_thickness / 2.,
+                    y_pos - grid_thickness / 2.,
+                    1.,
+                ) + self.grid_offset(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        match cell_type {
+            CellType::Filled => {}
+            CellType::Cross => {
+                bundle.texture = self.cross_handle.clone();
+            }
+        }
+        let entity_id = commands.spawn_bundle(bundle).insert(Cell(cell_type)).id();
 
         self.entities[row][col] = Some(CellEntity {
             cell_type,
@@ -309,6 +336,9 @@ impl Grid {
     pub fn point_coords(&self, pos: Vec2) -> Option<(usize, usize)> {
         let offset = pos - self.grid_offset().truncate();
         let adjusted = offset + Vec2::new(self.cell_size() / 2., self.cell_size() / 2.);
+        if adjusted.x < 0. || adjusted.y < 0. {
+            return None;
+        }
         let row = (adjusted.x / self.cell_size()) as usize;
         let col = (adjusted.y / self.cell_size()) as usize;
         if row < self.size && col < self.size {
@@ -339,7 +369,9 @@ fn handle_mouse_clicks(
     let win = windows.get_primary().expect("no primary window");
     let (camera, camera_transform) = camera.single();
 
-    if mouse_input.just_pressed(MouseButton::Left) {
+    let left_clicked = mouse_input.just_pressed(MouseButton::Left);
+    let right_clicked = mouse_input.just_pressed(MouseButton::Right);
+    if left_clicked || right_clicked {
         if let Some(click_pos) = win.cursor_position() {
             let window_size = Vec2::new(win.width() as f32, win.height() as f32);
             let ndc = (click_pos / window_size) * 2.0 - Vec2::ONE;
@@ -348,7 +380,15 @@ fn handle_mouse_clicks(
             let world_pos = ndc_to_world.project_point3(ndc.extend(-1.0)).truncate();
 
             if let Some((row, col)) = puzzle.grid.point_coords(world_pos) {
-                puzzle.grid.toggle_at(&mut commands, row, col);
+                if left_clicked {
+                    puzzle
+                        .grid
+                        .toggle_at(&mut commands, row, col, CellType::Filled);
+                } else if right_clicked {
+                    puzzle
+                        .grid
+                        .toggle_at(&mut commands, row, col, CellType::Cross);
+                }
             }
         }
     }
