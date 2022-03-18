@@ -3,6 +3,15 @@ use bevy::prelude::*;
 const WINDOW_WIDTH: f32 = 600.;
 const WINDOW_HEIGHT: f32 = WINDOW_WIDTH;
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+enum AppState {
+    MainMenu,
+    InGame,
+}
+
+#[derive(Component)]
+struct MainCamera;
+
 fn main() {
     App::new()
         .insert_resource(WindowDescriptor {
@@ -13,21 +22,128 @@ fn main() {
             resizable: false,
             ..Default::default()
         })
+        .add_state(AppState::MainMenu)
         .add_plugins(DefaultPlugins)
         .insert_resource(ClearColor(Color::rgb(0.08, 0.10, 0.32)))
         .add_startup_system(setup)
-        .add_system(handle_mouse_clicks)
+        .add_system_set(SystemSet::on_enter(AppState::MainMenu).with_system(setup_menu))
+        .add_system_set(SystemSet::on_update(AppState::MainMenu).with_system(handle_ui_buttons))
+        .add_system_set(SystemSet::on_exit(AppState::MainMenu).with_system(close_menu))
+        .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup_game))
+        .add_system_set(SystemSet::on_update(AppState::InGame).with_system(handle_mouse_clicks))
+        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(close_game))
         .run();
 }
 
-#[derive(Component)]
-struct MainCamera;
-
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(mut commands: Commands) {
     commands
         .spawn_bundle(OrthographicCameraBundle::new_2d())
         .insert(MainCamera);
+}
 
+#[derive(Component)]
+struct MainMenu;
+
+#[derive(Component)]
+enum MenuItem {
+    Play,
+}
+
+fn setup_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn_bundle(UiCameraBundle::default());
+
+    let font = asset_server.load("fonts/FiraSans-Bold.ttf");
+    let text_style = TextStyle {
+        font: font.clone(),
+        font_size: 40.0,
+        color: Color::WHITE,
+    };
+    let text_alignment = TextAlignment {
+        vertical: VerticalAlign::Center,
+        horizontal: HorizontalAlign::Center,
+    };
+
+    commands
+        .spawn_bundle(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                flex_direction: FlexDirection::ColumnReverse,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::SpaceEvenly,
+                ..Default::default()
+            },
+            color: Color::NONE.into(),
+            ..Default::default()
+        })
+        .insert(MainMenu)
+        .with_children(|parent| {
+            parent.spawn_bundle(TextBundle {
+                text: Text::with_section("NONOGRAM", text_style.clone(), text_alignment),
+                ..Default::default()
+            });
+
+            parent
+                .spawn_bundle(ButtonBundle {
+                    style: Style {
+                        // The size of the button. We want a small button so we'll set
+                        // it to be 10% width of the screen and 30px high.
+                        size: Size {
+                            width: Val::Percent(10.0),
+                            height: Val::Px(30.0),
+                        },
+                        flex_direction: FlexDirection::ColumnReverse,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::SpaceEvenly,
+                        ..Style::default()
+                    },
+                    ..ButtonBundle::default()
+                })
+                .insert(MenuItem::Play)
+                .with_children(|parent| {
+                    parent.spawn_bundle(TextBundle {
+                        style: Style::default(),
+                        text: Text::with_section(
+                            "PLAY",
+                            TextStyle {
+                                font: font.clone(),
+                                font_size: 20.0,
+                                color: Color::DARK_GRAY,
+                            },
+                            TextAlignment {
+                                vertical: VerticalAlign::Center,
+                                horizontal: HorizontalAlign::Center,
+                            },
+                        ),
+                        ..TextBundle::default()
+                    });
+                });
+        });
+}
+
+fn handle_ui_buttons(
+    mut app_state: ResMut<State<AppState>>,
+    mut mouse_input: ResMut<Input<MouseButton>>,
+    query: Query<(&Interaction, &MenuItem)>,
+) {
+    query.for_each(|(interaction, item)| match interaction {
+        Interaction::Clicked => match item {
+            MenuItem::Play => {
+                app_state.set(AppState::InGame).unwrap();
+                mouse_input.reset(MouseButton::Left);
+            }
+        },
+        Interaction::Hovered => {}
+        _ => {}
+    });
+}
+
+fn close_menu(mut commands: Commands, query: Query<Entity, With<MainMenu>>) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
+fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
     let solution = vec![
         vec![
             true, true, false, false, false, false, false, true, true, false,
@@ -64,6 +180,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let puzzle = Puzzle::new(&mut commands, &asset_server, solution);
     commands.insert_resource(puzzle);
 }
+
+fn close_game(mut commands: Commands, asset_server: Res<AssetServer>) {}
 
 fn count_runs(line: Vec<bool>) -> Vec<usize> {
     let mut runs = Vec::new();
