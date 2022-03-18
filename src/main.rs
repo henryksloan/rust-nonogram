@@ -656,6 +656,7 @@ fn close_win_menu(mut commands: Commands, query: Query<Entity, With<WinMenu>>) {
     for entity in query.iter() {
         commands.entity(entity).despawn_recursive();
     }
+    commands.remove_resource::<Solution>();
 }
 
 fn handle_win_ui_buttons(
