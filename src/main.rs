@@ -148,8 +148,10 @@ fn close_menu(mut commands: Commands, query: Query<Entity, With<MainMenu>>) {
 #[derive(Component)]
 struct Game;
 
+struct Solution(Vec<Vec<bool>>);
+
 fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
-    /* let solution = vec![
+    let solution = vec![
         vec![
             true, true, false, false, false, false, false, true, true, false,
         ],
@@ -180,10 +182,11 @@ fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
         vec![
             true, true, true, true, true, true, true, false, false, false,
         ],
-    ]; */
+    ];
 
-    let mut solution = vec![vec![false; 10]; 10];
-    solution[0][0] = true;
+    // let mut solution = vec![vec![false; 10]; 10];
+    // solution[0][0] = true;
+    // solution[0][1] = true;
 
     let puzzle = Puzzle::new(&mut commands, &asset_server, solution);
     commands.insert_resource(puzzle);
@@ -308,6 +311,10 @@ impl Puzzle {
 
     pub fn is_solved(&self) -> bool {
         *self.grid.get_cells() == self.solution
+    }
+
+    pub fn get_solution(&self) -> &Vec<Vec<bool>> {
+        &self.solution
     }
 }
 
@@ -446,8 +453,8 @@ impl Grid {
         self.despawn_at(commands, row, col);
 
         let grid_thickness = 0.5;
-        let x_pos = row as f32 * self.cell_size();
-        let y_pos = (self.size - col - 1) as f32 * self.cell_size();
+        let x_pos = col as f32 * self.cell_size();
+        let y_pos = (self.size - row - 1) as f32 * self.cell_size();
         let mut bundle = SpriteBundle {
             sprite: Sprite {
                 color: Color::rgb(0.1, 0.1, 0.1),
@@ -499,8 +506,8 @@ impl Grid {
         if adjusted.x < 0. || adjusted.y < 0. {
             return None;
         }
-        let row = (adjusted.x / self.cell_size()) as usize;
-        let col = self.size - (adjusted.y / self.cell_size()) as usize - 1;
+        let row = self.size - (adjusted.y / self.cell_size()) as usize - 1;
+        let col = (adjusted.x / self.cell_size()) as usize;
         if row < self.size && col < self.size {
             Some((row, col))
         } else {
@@ -554,6 +561,7 @@ fn handle_mouse_clicks(
         }
 
         if puzzle.is_solved() {
+            commands.insert_resource(Solution(puzzle.get_solution().to_vec()));
             app_state.set(AppState::WinMenu).unwrap();
         }
     }
@@ -567,7 +575,7 @@ enum WinMenuItem {
     MainMenu,
 }
 
-fn setup_win_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup_win_menu(mut commands: Commands, asset_server: Res<AssetServer>, solution: Res<Solution>) {
     let font = asset_server.load("fonts/FiraSans-Bold.ttf");
     let text_style = TextStyle {
         font: font.clone(),
@@ -597,6 +605,47 @@ fn setup_win_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                 text: Text::with_section("CORRECT", text_style.clone(), text_alignment),
                 ..Default::default()
             });
+
+            let size = solution.0.len();
+            let solution_size = 150.;
+            let cell_size = solution_size / size as f32;
+            parent
+                .spawn_bundle(NodeBundle {
+                    style: Style {
+                        size: Size {
+                            width: Val::Px(solution_size),
+                            height: Val::Px(solution_size),
+                        },
+                        ..Style::default()
+                    },
+                    ..Default::default()
+                })
+                .with_children(|parent| {
+                    for row in 0..size {
+                        for col in 0..size {
+                            if !solution.0[row][col] {
+                                continue;
+                            }
+                            parent.spawn_bundle(NodeBundle {
+                                style: Style {
+                                    size: Size::new(
+                                        Val::Px(cell_size * 1.05),
+                                        Val::Px(cell_size * 1.05),
+                                    ),
+                                    position_type: PositionType::Absolute,
+                                    position: Rect {
+                                        left: Val::Px(col as f32 * cell_size),
+                                        bottom: Val::Px((size - row - 1) as f32 * cell_size),
+                                        ..Default::default()
+                                    },
+                                    ..Default::default()
+                                },
+                                color: Color::rgb(0.1, 0.1, 0.1).into(),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                });
 
             parent
                 .spawn_bundle(ButtonBundle {
