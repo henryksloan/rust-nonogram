@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use rand::{thread_rng, Rng};
 
 const WINDOW_WIDTH: f32 = 600.;
 const WINDOW_HEIGHT: f32 = WINDOW_WIDTH;
@@ -151,43 +152,11 @@ struct Game;
 struct Solution(Vec<Vec<bool>>);
 
 fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let solution = vec![
-        vec![
-            true, true, false, false, false, false, false, true, true, false,
-        ],
-        vec![
-            false, false, false, true, false, true, false, true, true, true,
-        ],
-        vec![
-            true, true, true, true, false, false, false, true, true, true,
-        ],
-        vec![
-            false, true, false, false, false, false, false, false, true, true,
-        ],
-        vec![
-            false, false, false, false, false, false, false, false, true, true,
-        ],
-        vec![
-            false, false, false, false, false, false, true, false, true, true,
-        ],
-        vec![
-            false, false, false, false, true, false, true, true, true, true,
-        ],
-        vec![
-            true, true, true, true, true, false, true, false, false, true,
-        ],
-        vec![
-            true, true, true, true, true, true, true, false, false, false,
-        ],
-        vec![
-            true, true, true, true, true, true, true, false, false, false,
-        ],
-    ];
-
-    // let mut solution = vec![vec![false; 10]; 10];
-    // solution[0][0] = true;
-    // solution[0][1] = true;
-
+    let mut rng = thread_rng();
+    let size = 10;
+    let solution = (0..size)
+        .map(|_| (0..size).map(|_| rng.gen_bool(0.5)).collect())
+        .collect();
     let puzzle = Puzzle::new(&mut commands, &asset_server, solution);
     commands.insert_resource(puzzle);
 }
