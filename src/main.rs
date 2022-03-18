@@ -7,6 +7,7 @@ const WINDOW_HEIGHT: f32 = WINDOW_WIDTH;
 enum AppState {
     MainMenu,
     InGame,
+    WinMenu,
 }
 
 #[derive(Component)]
@@ -32,6 +33,9 @@ fn main() {
         .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup_game))
         .add_system_set(SystemSet::on_update(AppState::InGame).with_system(handle_mouse_clicks))
         .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(close_game))
+        .add_system_set(SystemSet::on_enter(AppState::WinMenu).with_system(setup_win_menu))
+        .add_system_set(SystemSet::on_update(AppState::WinMenu).with_system(handle_win_ui_buttons))
+        .add_system_set(SystemSet::on_exit(AppState::WinMenu).with_system(close_win_menu))
         .run();
 }
 
@@ -39,6 +43,8 @@ fn setup(mut commands: Commands) {
     commands
         .spawn_bundle(OrthographicCameraBundle::new_2d())
         .insert(MainCamera);
+
+    commands.spawn_bundle(UiCameraBundle::default());
 }
 
 #[derive(Component)]
@@ -50,8 +56,6 @@ enum MenuItem {
 }
 
 fn setup_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn_bundle(UiCameraBundle::default());
-
     let font = asset_server.load("fonts/FiraSans-Bold.ttf");
     let text_style = TextStyle {
         font: font.clone(),
@@ -85,8 +89,6 @@ fn setup_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
             parent
                 .spawn_bundle(ButtonBundle {
                     style: Style {
-                        // The size of the button. We want a small button so we'll set
-                        // it to be 10% width of the screen and 30px high.
                         size: Size {
                             width: Val::Percent(10.0),
                             height: Val::Px(30.0),
@@ -143,8 +145,11 @@ fn close_menu(mut commands: Commands, query: Query<Entity, With<MainMenu>>) {
     }
 }
 
+#[derive(Component)]
+struct Game;
+
 fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let solution = vec![
+    /* let solution = vec![
         vec![
             true, true, false, false, false, false, false, true, true, false,
         ],
@@ -175,13 +180,21 @@ fn setup_game(mut commands: Commands, asset_server: Res<AssetServer>) {
         vec![
             true, true, true, true, true, true, true, false, false, false,
         ],
-    ];
+    ]; */
+
+    let mut solution = vec![vec![false; 10]; 10];
+    solution[0][0] = true;
 
     let puzzle = Puzzle::new(&mut commands, &asset_server, solution);
     commands.insert_resource(puzzle);
 }
 
-fn close_game(mut commands: Commands, asset_server: Res<AssetServer>) {}
+fn close_game(mut commands: Commands, query: Query<Entity, With<Game>>) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+    commands.remove_resource::<Puzzle>();
+}
 
 fn count_runs(line: Vec<bool>) -> Vec<usize> {
     let mut runs = Vec::new();
@@ -209,7 +222,6 @@ fn count_runs(line: Vec<bool>) -> Vec<usize> {
 struct Puzzle {
     pub grid: Grid,
     solution: Vec<Vec<bool>>,
-    size: usize,
 }
 
 impl Puzzle {
@@ -249,45 +261,53 @@ impl Puzzle {
 
         for i in 0..size {
             for (j, run) in row_runs[size - i - 1].iter().rev().enumerate() {
-                commands.spawn_bundle(Text2dBundle {
-                    text: Text::with_section(run.to_string(), text_style.clone(), text_alignment),
-                    transform: Transform {
-                        translation: Vec3::new(
-                            -GRID_SIZE / 2. - 15. * (j + 1) as f32,
-                            -(GRID_SIZE - cell_size) / 2. + cell_size * i as f32,
-                            10.,
+                commands
+                    .spawn_bundle(Text2dBundle {
+                        text: Text::with_section(
+                            run.to_string(),
+                            text_style.clone(),
+                            text_alignment,
                         ),
+                        transform: Transform {
+                            translation: Vec3::new(
+                                -GRID_SIZE / 2. - 15. * (j + 1) as f32,
+                                -(GRID_SIZE - cell_size) / 2. + cell_size * i as f32,
+                                10.,
+                            ),
+                            ..Default::default()
+                        },
                         ..Default::default()
-                    },
-                    ..Default::default()
-                });
+                    })
+                    .insert(Game);
             }
 
             for (j, run) in col_runs[i].iter().rev().enumerate() {
-                commands.spawn_bundle(Text2dBundle {
-                    text: Text::with_section(run.to_string(), text_style.clone(), text_alignment),
-                    transform: Transform {
-                        translation: Vec3::new(
-                            -(GRID_SIZE - cell_size) / 2. + cell_size * i as f32,
-                            GRID_SIZE / 2. + 15. * (j + 1) as f32,
-                            10.,
+                commands
+                    .spawn_bundle(Text2dBundle {
+                        text: Text::with_section(
+                            run.to_string(),
+                            text_style.clone(),
+                            text_alignment,
                         ),
+                        transform: Transform {
+                            translation: Vec3::new(
+                                -(GRID_SIZE - cell_size) / 2. + cell_size * i as f32,
+                                GRID_SIZE / 2. + 15. * (j + 1) as f32,
+                                10.,
+                            ),
+                            ..Default::default()
+                        },
                         ..Default::default()
-                    },
-                    ..Default::default()
-                });
+                    })
+                    .insert(Game);
             }
         }
 
-        Self {
-            grid,
-            solution,
-            size,
-        }
+        Self { grid, solution }
     }
 
-    pub fn check_solved(&self) {
-        println!("{:?}", *self.grid.get_cells() == self.solution);
+    pub fn is_solved(&self) -> bool {
+        *self.grid.get_cells() == self.solution
     }
 }
 
@@ -324,18 +344,20 @@ impl Grid {
         let grid_thickness = 0.5;
 
         // Background
-        commands.spawn_bundle(SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgb(1.0, 1.0, 1.0),
+        commands
+            .spawn_bundle(SpriteBundle {
+                sprite: Sprite {
+                    color: Color::rgb(1.0, 1.0, 1.0),
+                    ..Default::default()
+                },
+                transform: Transform {
+                    translation: Vec3::new(-grid_thickness / 2., -grid_thickness / 2., 0.),
+                    scale: Vec3::new(GRID_SIZE - grid_thickness, GRID_SIZE - grid_thickness, 0.),
+                    ..Default::default()
+                },
                 ..Default::default()
-            },
-            transform: Transform {
-                translation: Vec3::new(-grid_thickness / 2., -grid_thickness / 2., 0.),
-                scale: Vec3::new(GRID_SIZE - grid_thickness, GRID_SIZE - grid_thickness, 0.),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
+            })
+            .insert(Game);
 
         // Grid
         let grid_padding = GRID_SIZE / size as f32;
@@ -348,24 +370,28 @@ impl Grid {
 
             let thickness = grid_thickness * if (i + 1) % 5 == 0 { 3. } else { 1. };
 
-            commands.spawn_bundle(SpriteBundle {
-                sprite: sprite.clone(),
-                transform: Transform {
-                    translation: Vec3::new(offset - (thickness / 2.), 0., 10.),
-                    scale: Vec3::new(thickness, GRID_SIZE, 0.),
+            commands
+                .spawn_bundle(SpriteBundle {
+                    sprite: sprite.clone(),
+                    transform: Transform {
+                        translation: Vec3::new(offset - (thickness / 2.), 0., 10.),
+                        scale: Vec3::new(thickness, GRID_SIZE, 0.),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                },
-                ..Default::default()
-            });
-            commands.spawn_bundle(SpriteBundle {
-                sprite: sprite.clone(),
-                transform: Transform {
-                    translation: Vec3::new(0., offset - (thickness / 2.), 10.),
-                    scale: Vec3::new(GRID_SIZE, thickness, 0.),
+                })
+                .insert(Game);
+            commands
+                .spawn_bundle(SpriteBundle {
+                    sprite: sprite.clone(),
+                    transform: Transform {
+                        translation: Vec3::new(0., offset - (thickness / 2.), 10.),
+                        scale: Vec3::new(GRID_SIZE, thickness, 0.),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                },
-                ..Default::default()
-            });
+                })
+                .insert(Game);
         }
 
         Self {
@@ -447,7 +473,11 @@ impl Grid {
                 bundle.texture = self.cross_handle.clone();
             }
         }
-        let entity_id = commands.spawn_bundle(bundle).insert(Cell(cell_type)).id();
+        let entity_id = commands
+            .spawn_bundle(bundle)
+            .insert(Cell(cell_type))
+            .insert(Game)
+            .id();
 
         self.entities[row][col] = Some(CellEntity {
             cell_type,
@@ -490,6 +520,7 @@ impl Grid {
 }
 
 fn handle_mouse_clicks(
+    mut app_state: ResMut<State<AppState>>,
     mut commands: Commands,
     mouse_input: Res<Input<MouseButton>>,
     windows: Res<Windows>,
@@ -522,6 +553,106 @@ fn handle_mouse_clicks(
             }
         }
 
-        puzzle.check_solved();
+        if puzzle.is_solved() {
+            app_state.set(AppState::WinMenu).unwrap();
+        }
     }
+}
+
+#[derive(Component)]
+struct WinMenu;
+
+#[derive(Component)]
+enum WinMenuItem {
+    MainMenu,
+}
+
+fn setup_win_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let font = asset_server.load("fonts/FiraSans-Bold.ttf");
+    let text_style = TextStyle {
+        font: font.clone(),
+        font_size: 40.0,
+        color: Color::WHITE,
+    };
+    let text_alignment = TextAlignment {
+        vertical: VerticalAlign::Center,
+        horizontal: HorizontalAlign::Center,
+    };
+
+    commands
+        .spawn_bundle(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                flex_direction: FlexDirection::ColumnReverse,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::SpaceEvenly,
+                ..Default::default()
+            },
+            color: Color::NONE.into(),
+            ..Default::default()
+        })
+        .insert(WinMenu)
+        .with_children(|parent| {
+            parent.spawn_bundle(TextBundle {
+                text: Text::with_section("CORRECT", text_style.clone(), text_alignment),
+                ..Default::default()
+            });
+
+            parent
+                .spawn_bundle(ButtonBundle {
+                    style: Style {
+                        size: Size {
+                            width: Val::Percent(17.0),
+                            height: Val::Px(30.0),
+                        },
+                        flex_direction: FlexDirection::ColumnReverse,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::SpaceEvenly,
+                        ..Style::default()
+                    },
+                    ..ButtonBundle::default()
+                })
+                .insert(WinMenuItem::MainMenu)
+                .with_children(|parent| {
+                    parent.spawn_bundle(TextBundle {
+                        style: Style::default(),
+                        text: Text::with_section(
+                            "MAIN MENU",
+                            TextStyle {
+                                font: font.clone(),
+                                font_size: 20.0,
+                                color: Color::DARK_GRAY,
+                            },
+                            TextAlignment {
+                                vertical: VerticalAlign::Center,
+                                horizontal: HorizontalAlign::Center,
+                            },
+                        ),
+                        ..TextBundle::default()
+                    });
+                });
+        });
+}
+
+fn close_win_menu(mut commands: Commands, query: Query<Entity, With<WinMenu>>) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
+fn handle_win_ui_buttons(
+    mut app_state: ResMut<State<AppState>>,
+    mut mouse_input: ResMut<Input<MouseButton>>,
+    query: Query<(&Interaction, &WinMenuItem)>,
+) {
+    query.for_each(|(interaction, item)| match interaction {
+        Interaction::Clicked => match item {
+            WinMenuItem::MainMenu => {
+                app_state.set(AppState::MainMenu).unwrap();
+                mouse_input.reset(MouseButton::Left);
+            }
+        },
+        Interaction::Hovered => {}
+        _ => {}
+    });
 }
